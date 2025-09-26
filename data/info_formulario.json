@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Alvaro",
+    "email": "alvaro@gmail.com",
+    "phone": "600555666",
+    "type": "Compra",
+    "message": "Hola, estoy interesado/a en: Apartamento luminoso centro (85 m², 2 hab, 1 baños).",
+    "consent": true,
+    "submittedAt": "2025-09-24T14:37:47.880Z",
+    "ip": "127.0.0.1",
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+  },
+  {
+    "name": "Alvaro",
+    "email": "alvaro@gmail.com",
+    "phone": "609909444",
+    "type": "Alquiler",
+    "message": "Hola, estoy interesado/a en: Apartamento luminoso centro (85 m², 2 hab, 1 baños).",
+    "consent": true,
+    "submittedAt": "2025-09-24T15:00:52.440Z",
+    "ip": "127.0.0.1",
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+  }
+]
