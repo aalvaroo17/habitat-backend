@@ -4,12 +4,13 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-
+# ----------------------
+# Preparar almacenamiento local (archivo JSON)
+# ----------------------
 def ensure_data_folder(path: str) -> None:
     folder = os.path.dirname(path)
     if folder and not os.path.exists(folder):
         os.makedirs(folder, exist_ok=True)
-
 
 DATA_FILE = os.path.join(os.path.dirname(__file__), 'data', 'info_formulario.json')
 ensure_data_folder(DATA_FILE)
@@ -17,16 +18,24 @@ if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump([], f)
 
-
+# ----------------------
+# App Flask
+# ----------------------
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:*", "http://127.0.0.1:*"]}})
 
+# 🔒 Permitir solo llamadas desde tu Hosting en Firebase
+CORS(app, resources={r"/api/*": {"origins": "https://habitat-proyecto.web.app"}})
 
-@app.get('/health')
-def health() -> tuple:
-    return jsonify({"status": "ok"}), 200
+# ----------------------
+# Health check (para Render)
+# ----------------------
+@app.get('/api/health')
+def api_health() -> tuple:
+    return jsonify({"ok": True}), 200
 
-
+# ----------------------
+# Endpoint: enviar contacto
+# ----------------------
 @app.post('/api/contact')
 def post_contact() -> tuple:
     try:
@@ -67,7 +76,9 @@ def post_contact() -> tuple:
 
     return jsonify({"ok": True}), 201
 
-
+# ----------------------
+# Endpoint: listar contactos
+# ----------------------
 @app.get('/api/contacts')
 def list_contacts() -> tuple:
     try:
@@ -79,9 +90,9 @@ def list_contacts() -> tuple:
         current = []
     return jsonify(current), 200
 
-
+# ----------------------
+# Run local
+# ----------------------
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', '5000'))
     app.run(host='0.0.0.0', port=port, debug=True)
-
-
