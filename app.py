@@ -3,61 +3,81 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# --- Firestore via Firebase Admin SDK (soporta Render + Cloud Run) ---
+# Firebase Admin / Firestore
 import firebase_admin
 from firebase_admin import credentials, firestore
 
 logging.basicConfig(level=logging.INFO)
 
-# Si estamos en Render: usamos la variable de entorno GOOGLE_CREDENTIALS (contenido JSON)
-GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
-FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")  # opcional, útil para debug
+# ========= Inicialización Firebase Admin (Render o Cloud Run) =========
+FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID")  # p.ej. "habitat-proyecto"
+GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")    # JSON completo si estás en Render
 
+_env_json_project = None
 if not firebase_admin._apps:
     if GOOGLE_CREDENTIALS:
+        # Render: leemos el JSON de la variable de entorno
         info = json.loads(GOOGLE_CREDENTIALS)
+        _env_json_project = info.get("project_id")
         cred = credentials.Certificate(info)
-        firebase_admin.initialize_app(cred, {"projectId": FIREBASE_PROJECT_ID or info.get("project_id")})
-        logging.info("Firebase initialized with service account from env; project=%s",
-                     FIREBASE_PROJECT_ID or info.get("project_id"))
+        firebase_admin.initialize_app(cred, {
+            "projectId": FIREBASE_PROJECT_ID or _env_json_project
+        })
+        logging.info("Firebase initialized with service account (env). project=%s",
+                     FIREBASE_PROJECT_ID or _env_json_project)
     else:
-        # Cloud Run / ADC
+        # Cloud Run / local con ADC
         firebase_admin.initialize_app()
-        logging.info("Firebase initialized with ADC (default credentials)")
+        logging.info("Firebase initialized with ADC/default credentials")
 
 db = firestore.client()
-logging.info("Firestore client project: %s", getattr(db._client_info, "project", None) or FIREBASE_PROJECT_ID)
 
-# ----------------------
-# App Flask
-# ----------------------
+def _effective_project_id() -> str:
+    """Intenta deducir el projectId efectivo del cliente actual."""
+    try:
+        app = firebase_admin.get_app()
+        proj = getattr(app, "project_id", None)
+        if not proj:
+            proj = app.options.get("projectId")
+    except Exception:
+        proj = None
+    return proj or FIREBASE_PROJECT_ID or _env_json_project or ""
+
+logging.info("Firestore client ready. effective_project=%s", _effective_project_id())
+
+# ========= Flask app =========
 app = Flask(__name__)
 
-# CORS: permite llamadas desde tu Hosting de Firebase
+# CORS: tu dominio de Firebase Hosting (añade localhost si lo necesitas en dev)
 CORS(app, resources={r"/api/*": {"origins": "https://habitat-proyecto.web.app"}})
 
-# ----------------------
-# Health check
-# ----------------------
+# ---------- Health ----------
 @app.get("/api/health")
 def api_health():
     return jsonify(ok=True), 200
 
-# Debug (para verificar proyecto/credenciales rápidamente)
+# ---------- Debug (para verificar proyecto/credenciales) ----------
 @app.get("/api/debug")
 def api_debug():
-    try:
-        proj = getattr(db._client_info, "project", None) or FIREBASE_PROJECT_ID
-    except Exception:
-        proj = FIREBASE_PROJECT_ID
     return jsonify(
         env_project=FIREBASE_PROJECT_ID,
-        client_project=proj
+        client_project=_effective_project_id()
     ), 200
 
-# ----------------------
-# Crear contacto
-# ----------------------
+# ---------- Helpers ----------
+def _serialize(value):
+    """Convierte valores Firestore (Timestamp/datetime) a str ISO si hace falta."""
+    try:
+        # google.cloud.firestore Timestamp tiene .to_datetime()
+        if hasattr(value, "to_datetime"):
+            return value.to_datetime().isoformat() + "Z"
+    except Exception:
+        pass
+    if isinstance(value, datetime):
+        return value.isoformat() + "Z"
+    return value
+
+# ---------- Crear contacto ----------
 @app.post("/api/contact")
 def post_contact():
     try:
@@ -80,7 +100,7 @@ def post_contact():
         "type": str(data.get("type", "")).strip(),
         "message": str(data.get("message", "")).strip(),
         "consent": bool(data.get("consent", False)),
-        # Firestore acepta datetime -> Timestamp
+        # Firestore acepta datetime (se guarda como Timestamp)
         "submittedAt": data.get("submittedAt") or datetime.utcnow(),
         "ip": request.headers.get("X-Forwarded-For", request.remote_addr),
         "ua": request.headers.get("User-Agent", "")
@@ -94,31 +114,25 @@ def post_contact():
 
     return jsonify(ok=True), 201
 
-# ----------------------
-# Listar contactos
-# ----------------------
+# ---------- Listar contactos ----------
 @app.get("/api/contacts")
 def list_contacts():
     try:
-        # Orden por fecha si existe
         q = db.collection("contactos").order_by("submittedAt", direction=firestore.Query.DESCENDING)
         docs = q.stream()
         out = []
         for d in docs:
             o = d.to_dict()
             o["id"] = d.id
-            # serializa submittedAt si es Timestamp
-            if isinstance(o.get("submittedAt"), datetime):
-                o["submittedAt"] = o["submittedAt"].isoformat() + "Z"
-            out.append(o)
+            # serializa posibles Timestamps
+            for k, v in list(o.items()):
+                o[k] = _serialize(v)
         return jsonify(out), 200
     except Exception as exc:
         logging.exception("Firestore read failed")
         return jsonify(error="Failed to retrieve data", details=str(exc)), 500
 
-# ----------------------
-# Run local
-# ----------------------
+# ---------- Run local ----------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
